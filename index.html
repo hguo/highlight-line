@@ -1,0 +1,174 @@
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+  <style>
+    body {
+      margin: 0px;
+      overflow: hidden;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="container"></div>
+  <script src="//cdnjs.cloudflare.com/ajax/libs/three.js/103/three.min.js"></script>
+  <script src="TeapotBufferGeometry.js"></script>
+  <script src="TrackballControls.js"></script>
+
+  <script id="vertexShader" type="x-shader/x-vertex">
+		varying vec3 N;
+		varying vec3 V;
+		varying vec3 X;
+
+		void main() {
+			V = vec3(modelViewMatrix * vec4(position, 1.0));
+			N = normalize(normalMatrix * normal);
+			
+			gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+			X = position;
+		}
+  </script>
+
+  <script id="fragmentShader" type="x-shader/x-fragment">
+        varying vec3 N; // normalized
+        varying vec3 V;
+        varying vec3 X;
+
+		uniform float Ka;   // Ambient reflection coefficient
+		uniform float Kd;   // Diffuse reflection coefficient
+		uniform float Ks;   // Specular reflection coefficient
+		uniform float shininessVal; // Shininess
+
+		// Material color
+		uniform vec3 ambientColor;
+		uniform vec3 diffuseColor;
+		uniform vec3 specularColor;
+		uniform vec3 lightDir;
+		
+		void main() {
+		  vec3 L = normalize(lightDir);
+
+		  vec3 R = reflect(-L, N);  // Reflected light vector
+		  vec3 V = normalize(-V);   // Vector to viewer
+		  
+		  vec3 a = lightDir; // vec3(1300.0, 3033.0, -300.0); // -300.0, 3590.0, -350.0); 
+		  vec3 r = 2.0 * dot(N, V) * N - V;
+		  vec3 d = r - dot(r, a) * a;
+		  vec3 va = normalize(V - dot(V, a) * a);
+		  vec3 ap = cross(a, va);
+		  vec3 na = normalize(N - dot(N, a) * a);
+		  float theta = atan(dot(r, ap), dot(r, va));
+		  // float theta = atan(dot(na, ap), dot(na, X));
+
+
+		  // Lambert's cosine law
+		  float lambertian = max(dot(N, L), 0.0);
+		  float specular = 0.0;
+
+		  // Compute the specular term
+		  float specAngle = max(dot(R, V), 0.0);
+		  specular = pow(specAngle, shininessVal);
+		  
+		  vec4 color = vec4(Ka * ambientColor +
+		               Kd * lambertian * diffuseColor +
+		               Ks * specular * specularColor, 1.0);
+
+          // float theta = abs(dot(cross(L, N), (lightPos - X))) / length(cross(L, N));
+		  // float theta = cos(50.0 * dot(R, L)); 
+		  // float theta = atan(dot(N, R), dot(N, X));
+		  
+		  // gl_FragColor = color; 
+		  gl_FragColor = color * sign(cos(theta*100.0)); // cos(theta*10.0);
+		  // gl_FragColor = vec4(L, 1.0); // , 0.0, 0.0, 1.0);
+		}
+  </script>
+  <script>
+    var container = document.getElementById('container');
+    var camera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 0.1, 10); 
+	camera.position.z = 5;
+
+	var renderer = new THREE.WebGLRenderer({preserveDrawingBuffer: true});
+	renderer.setPixelRatio(window.devicePixelRatio);
+	renderer.setSize(window.innerWidth, window.innerHeight);
+	renderer.setClearColor(0xffffff, 1);
+	container.appendChild(renderer.domElement);
+
+    cameraControls = new THREE.TrackballControls(camera, renderer.domElement);
+	cameraControls.target.set(0, 0, 0);
+	cameraControls.zoomSpeed = 0.04;
+	cameraControls.panSpeed = 0.04;
+
+	var scene = new THREE.Scene();
+
+	var uniforms = {
+		Ka: {type: "f", value: 0.3},
+		Kd: {type: "f", value: 0.6},
+		Ks: {type: "f", value: 0.1},
+		ambientColor: {type: "v3", value: new THREE.Vector3(1.0, 1.0, 0.0)},
+		diffuseColor: {type: "v3", value: new THREE.Vector3(1.0, 1.0, 1.0)},
+		specularColor: {type: "v3", value: new THREE.Vector3(1.0, 1.0, 1.0)},
+		shininessVal: {type: "f", value: 80},
+		lightDir: {type: "v3", value: new THREE.Vector3(2.0, 2.0, 2.0)},
+		time: { type: "f", value: 1.0 },
+		resolution: { type: "v2", value: new THREE.Vector2() }
+	};
+	uniforms.resolution.value.x = window.innerWidth;
+	uniforms.resolution.value.y = window.innerHeight;
+
+	shaderMaterial = new THREE.ShaderMaterial({
+		uniforms: uniforms,
+		vertexShader: document.getElementById('vertexShader').textContent,
+		fragmentShader: document.getElementById('fragmentShader').textContent
+	});
+
+	var sphereMaterial = new THREE.MeshPhongMaterial({
+	    color: 0xffff00
+  	});
+
+	teapot = new THREE.TeapotBufferGeometry(1.0);
+	sphere = new THREE.SphereGeometry(1.0, 50, 50);
+	// mesh = new THREE.Mesh(sphere, sphereMaterial);
+	// mesh = new THREE.Mesh(sphere, shaderMaterial);
+	mesh = new THREE.Mesh(teapot, shaderMaterial);
+
+	scene.add(mesh);
+
+	var directionalLight = new THREE.DirectionalLight(0xffffff);
+	scene.add(directionalLight);
+
+	var mousePos = new THREE.Vector2();
+	var raycaster = new THREE.Raycaster();
+	var clock = new THREE.Clock();
+
+    var startTime = Date.now();
+
+	window.addEventListener("mousedown", onMouseDown, false );
+	window.addEventListener("mousemove", onMouseMove, false);
+
+	render();
+
+    function render() {
+    	raycaster.setFromCamera(mousePos, camera);
+    	var delta = clock.getDelta();
+  		requestAnimationFrame(render);
+  		cameraControls.update(delta);
+
+	    renderer.render(scene, camera);
+	}
+
+function onMouseDown(evt) {
+  mousePos.x = (evt.clientX / window.innerWidth) * 2 - 1;
+  mousePos.y = -(evt.clientY / window.innerHeight) * 2 + 1;
+}
+
+function onMouseMove(evt) {
+  mousePos.x = (evt.clientX / window.innerWidth) * 2 - 1;
+  mousePos.y = -(evt.clientY / window.innerHeight) * 2 + 1;
+}
+
+  </script>
+</body>
+
+</html>
